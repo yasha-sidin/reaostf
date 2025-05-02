@@ -1,0 +1,5 @@
+# Use an official Node.js runtime as a parent image
+FROM alpine:3.21
+
+# Install ADB
+RUN apk add --no-cache android-tools

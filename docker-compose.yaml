@@ -1,36 +1,269 @@
-version: "3"
-
 services:
-  rethinkdb:
-    container_name: rethinkdb
-    image: rethinkdb:2.4.2
-    restart: unless-stopped
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reaostf
     volumes:
-        - "rethinkdb-data:/data"
-    command: "rethinkdb --bind all --cache-size 2048"
+      - node_modules:/app/node_modules
+
+  api:
+    image: reaostf
+    restart: unless-stopped
+    healthcheck:
+      test: nc -z localhost 7106
+    depends_on:
+      - rethinkdb
+      - triproxy-app
+      - triproxy-dev
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015
+      - STF_API_CONNECT_PUSH=tcp://triproxy-app:7113
+      - STF_API_CONNECT_PUSH_DEV=tcp://triproxy-dev:7113
+      - STF_API_CONNECT_SUB=tcp://triproxy-app:7111
+      - STF_API_CONNECT_SUB_DEV=tcp://triproxy-dev:7111
+      - STF_API_SECRET=secret
+    command: /app/bin/stf api
+
+  app:
+    image: reaostf
+    restart: unless-stopped
+    healthcheck:
+      test: nc -z localhost 7105
+    depends_on:
+      - rethinkdb
+      - auth-ldap
+      - websocket
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015
+      - STF_ADMIN_EMAIL=admin@ldap.lan
+      - STF_ADMIN_NAME=admin
+      - STF_APP_AUTH_URL=/auth/ldap/
+      - STF_APP_SECRET=secret
+      - STF_APP_WEBSOCKET_URL=/
+      - STF_ROOT_GROUP_NAME=default
+    command: /app/bin/stf app
+
+  auth-ldap:
+    image: reaostf
+    restart: unless-stopped
+    healthcheck:
+      test: nc -z localhost 7120
+    depends_on:
+      - rethinkdb
+      - openldap
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015
+      - STF_AUTH_LDAP_APP_URL=/
+      - STF_AUTH_LDAP_LDAP_SEARCH_DN=dc=example,dc=org
+      - STF_AUTH_LDAP_LDAP_SEARCH_FIELD=uid
+      - STF_AUTH_LDAP_LDAP_URL=ldap://openldap:1389
+      - STF_AUTH_LDAP_SECRET=secret
+    command: /app/bin/stf auth-ldap
+
+  groups-engine:
+    image: reaostf
+    restart: unless-stopped
+    depends_on:
+      rethinkdb:
+        condition: service_healthy
+      triproxy-app:
+        condition: service_started
+      triproxy-dev:
+        condition: service_started
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015
+      - STF_GROUPS_ENGINE_CONNECT_PUSH=tcp://triproxy-app:7113
+      - STF_GROUPS_ENGINE_CONNECT_PUSH_DEV=tcp://triproxy-dev:7113
+      - STF_GROUPS_ENGINE_CONNECT_SUB=tcp://triproxy-app:7111
+      - STF_GROUPS_ENGINE_CONNECT_SUB_DEV=tcp://triproxy-dev:7111
+    command: /app/bin/stf groups-engine
+
+  processor:
+    image: reaostf
+    restart: unless-stopped
+    depends_on:
+      - rethinkdb
+      - triproxy-app
+      - triproxy-dev
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015
+      - STF_PROCESSOR_CONNECT_APP_DEALER=tcp://triproxy-app:7112
+      - STF_PROCESSOR_CONNECT_DEV_DEALER=tcp://triproxy-dev:7112
+    command: /app/bin/stf processor
+
+  provider:
+    image: reaostf
+    restart: unless-stopped
+    depends_on:
+      - adb
+      - rethinkdb
+      - triproxy-dev
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015
+      - STF_PROVIDER_ADB_HOST=adb
+      - STF_PROVIDER_ALLOW_REMOTE=true
+      - STF_PROVIDER_CONNECT_PUSH=tcp://triproxy-dev:7113
+      - STF_PROVIDER_CONNECT_SUB=tcp://triproxy-dev:7111
+      - STF_PROVIDER_SCREEN_WS_URL_PATTERN=/d/<%= publicPort %>/
+      - STF_PROVIDER_STORAGE_URL=/s/
+    command: /app/bin/stf provider
+
+  reaper:
+    image: reaostf
+    restart: unless-stopped
+    depends_on:
+      rethinkdb:
+        condition: service_healthy
+      triproxy-app:
+        condition: service_started
+      triproxy-dev:
+        condition: service_started
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015
+      - STF_REAPER_CONNECT_PUSH=tcp://triproxy-dev:7113
+      - STF_REAPER_CONNECT_SUB=tcp://triproxy-app:7111
+    command: /app/bin/stf reaper
+
+  storage-apk:
+    image: reaostf
+    restart: unless-stopped
+    healthcheck:
+      test: nc -z localhost 7100
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - STF_STORAGE_PLUGIN_APK_STORAGE_URL=/s/apk/
+    command: /app/bin/stf storage-plugin-apk
+
+  storage-image:
+    image: reaostf
+    restart: unless-stopped
+    healthcheck:
+      test: nc -z localhost 7100
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - STF_STORAGE_PLUGIN_IMAGE_STORAGE_URL=/s/image/
+    command: /app/bin/stf storage-plugin-image
+
+  storage-temp:
+    image: reaostf
+    restart: unless-stopped
+    healthcheck:
+      test: nc -z localhost 7100
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    command: /app/bin/stf storage-temp
+
+  triproxy-app:
+    image: reaostf
+    restart: unless-stopped
+    healthcheck:
+      test: for port in 7111 7112 7113; do nc -z localhost $$port; done
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    command: /app/bin/stf triproxy app
+
+  triproxy-dev:
+    image: reaostf
+    restart: unless-stopped
+    healthcheck:
+      test: for port in 7111 7112 7113; do nc -z localhost $$port; done
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    command: /app/bin/stf triproxy dev
+
+  websocket:
+    image: reaostf
+    restart: unless-stopped
+    healthcheck:
+      test: nc -z localhost 7110
+    depends_on:
+      - rethinkdb
+      - triproxy-app
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    environment:
+      - RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015
+      - STF_WEBSOCKET_CONNECT_PUSH=tcp://triproxy-app:7113
+      - STF_WEBSOCKET_CONNECT_SUB=tcp://triproxy-app:7111
+      - STF_WEBSOCKET_SECRET=secret
+      - STF_WEBSOCKET_STORAGE_URL=/s/
+    command: /app/bin/stf websocket
+
+  openldap:
+    image: bitnami/openldap:2.6.9
+    restart: unless-stopped
+    healthcheck:
+      test: ldapsearch -x -H ldap://localhost:1389 -b dc=example,dc=org
+    volumes:
+      - openldap:/bitnami/openldap
+    environment:
+      - LDAP_PASSWORDS=password
+      - LDAP_USERS=admin
+
+  rethinkdb:
+    image: rethinkdb:2.4.3
+    restart: unless-stopped
+    healthcheck:
+      test: bash -c 'echo > /dev/tcp/localhost/28015'
+    volumes:
+      - rethinkdb:/data
 
   adb:
-    container_name: adb
-    image: devicefarmer/adb:latest
+    build:
+      dockerfile: Dockerfile-adb
     restart: unless-stopped
-    volumes: 
-      - "/dev/bus/usb:/dev/bus/usb"
-    privileged: true
+    healthcheck:
+      test: nc -z localhost 5037
+    volumes:
+      - adb:/root/.android/
+    command: /usr/bin/adb nodaemon server -a
 
-  stf:
-    container_name: stf
-    image: devicefarmer/stf
+  nginx:
+    image: nginx:1.27.5
+    restart: unless-stopped
+    depends_on:
+      - app
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
     ports:
       - "7100:7100"
-      - "7110:7110"
-      - "7400-7500:7400-7500"
-    environment:
-      - TZ='America/Los_Angeles'
-      - RETHINKDB_PORT_28015_TCP=tcp://rethinkdb:28015
-      - STF_ADMIN_EMAIL=<YOUR_EMAIL>
-      - STF_ADMIN_NAME=<YOUR_NAME>
-    restart: unless-stopped
-    command: stf local --adb-host adb --public-ip YOUR_IP --provider-min-port 7400 --provider-max-port 7500
 
 volumes:
-  rethinkdb-data: {}
+  adb:
+    driver: local
+  openldap:
+    driver: local
+  rethinkdb:
+    driver: local
+  node_modules:
+    driver: local
