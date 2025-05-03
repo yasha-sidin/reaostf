@@ -5,14 +5,15 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 # Install build dependencies
-RUN apk update
-RUN apk add build-base cmake musl python3
+RUN apk add --no-cache build-base cmake git musl python3
 
-# Copy package.json and package-lock.json to install dependencies
-COPY package*.json .
+# Copy config and source files
+COPY package*.json bower.json .bowerrc gulpfile.js webpack.config.js ./
+COPY res ./res
+COPY lib ./lib
 
-# Install app dependencies
-RUN npm install
+# Install app dependencies in one layer
+RUN npm install && npm run prepare
 
 ##### Runtime Stage #####
 FROM node:22-alpine
@@ -21,8 +22,9 @@ FROM node:22-alpine
 WORKDIR /app
 
 # Install the required packages
-RUN apk update
 RUN apk add --no-cache coreutils musl
 
 # Copy the build stage files to the runtime stage
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/node_modules /app/node_modules
+COPY --from=build /app/res/bower_components /app/res/bower_components
+COPY --from=build /app/res/build /app/res/build
