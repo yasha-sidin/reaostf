@@ -305,6 +305,8 @@ services:
     restart: unless-stopped
     healthcheck:
       test: nc -z localhost 5037
+    extra_hosts:
+      - a:host-gateway
     volumes:
       - adb:/root/.android/
     command: /usr/bin/adb nodaemon server -a
