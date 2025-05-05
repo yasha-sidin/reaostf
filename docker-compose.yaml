@@ -307,8 +307,21 @@ services:
       test: nc -z localhost 5037
     extra_hosts:
       - a:host-gateway
+      - b:10.37.0.2
+      - c:10.37.0.3
+      - d:10.37.0.4
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - 5038:51820/udp
+    environment:
+      - PEERS=b,c,d
+      - INTERNAL_SUBNET=10.37.0.0/24
+      - ALLOWEDIPS=10.37.0.0/24
+      - SERVERPORT=5038
     volumes:
       - adb:/root/.android/
+      - wireguard:/config
     command: /usr/bin/adb nodaemon server -a
 
   nginx:
@@ -333,4 +346,6 @@ volumes:
   rethinkdb:
     driver: local
   res_build:
+    driver: local
+  wireguard:
     driver: local

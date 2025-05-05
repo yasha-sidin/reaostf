@@ -1,5 +1,5 @@
-# Use an official Node.js runtime as a parent image
-FROM alpine:3.21
+# Alpine-based WireGuard container
+FROM linuxserver/wireguard:1.0.20210914
 
 # Install ADB
 RUN apk add --no-cache android-tools
