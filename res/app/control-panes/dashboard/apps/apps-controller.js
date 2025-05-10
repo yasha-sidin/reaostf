@@ -51,6 +51,10 @@ module.exports = function ShellCtrl($scope) {
     run('am start -a android.settings.APPLICATION_SETTINGS')
   }
 
+  $scope.openProfiles = function() {
+    run('am start -a android.settings.USER_SETTINGS')
+  }
+
   $scope.openRunningApps = function() {
     openSetting('RunningServicesActivity')
   }
