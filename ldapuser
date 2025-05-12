@@ -4,7 +4,7 @@ LDAP_BASE="-H ldap://localhost:1389 -x -D cn=admin,dc=example,dc=org -w adminpas
 LDAP_OU="-b ou=users,dc=example,dc=org"
 
 # Define functions for LDAP commands
-alias dc='docker compose exec openldap'
+alias dc='docker compose exec -T openldap'
 
 ldapsearch() {
   dc ldapsearch $LDAP_BASE $LDAP_OU -LLL "$@"
