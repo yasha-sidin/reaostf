@@ -1,0 +1,213 @@
+#!/bin/sh
+# LDAP parameters
+LDAP_BASE="-H ldap://localhost:1389 -x -D cn=admin,dc=example,dc=org -w adminpassword"
+LDAP_OU="-b ou=users,dc=example,dc=org"
+
+# Define functions for LDAP commands
+alias dc='docker compose exec openldap'
+
+ldapsearch() {
+  dc ldapsearch $LDAP_BASE $LDAP_OU -LLL "$@"
+}
+
+ldappasswd() {
+  dc ldappasswd $LDAP_BASE "$@"
+}
+
+ldapadd() {
+  dc ldapadd $LDAP_BASE "$@"
+}
+
+ldapdelete() {
+  dc ldapdelete $LDAP_BASE "$@"
+}
+
+list_users() {
+  local username="$1"
+
+  if [ -z "$username" ]; then
+    # List all users if no username is provided. Format: uid (cn)
+    ldapsearch objectClass=inetOrgPerson uid cn | awk '/^uid: /{u=$2} /^cn: /{c=$2} /^$/{if(u && c){print u " (" c ")" } else if (u) {print u}; u="";c=""}'
+  else
+    # Show info for specific user if username is provided
+    ldapsearch "(uid=$username)"
+  fi
+}
+
+change_password() {
+  local username="$1"
+  local new_password="$2"
+
+  if [ -z "$username" ] || [ -z "$new_password" ]; then
+    echo "Usage: change_password <username> <new_password>" >&2
+    return 1
+  fi
+
+  ldappasswd -s "$new_password" "cn=$username,ou=users,dc=example,dc=org" && \
+    echo "Password changed successfully for $username" || \
+    { echo "Failed to change password for $username" >&2; return 1; }
+}
+
+add_user() {
+  local username="$1"
+  local password="$2"
+
+  if [ -z "$username" ] || [ -z "$password" ]; then
+    echo "Usage: add_user <username> <password>" >&2
+    return 1
+  fi
+
+  # Add the user to LDAP directly using the ldapadd function
+  ldapadd <<EOF && echo "User $username added successfully" || \
+    { echo "Failed to add user $username" >&2; return 1; }
+dn: cn=$username,ou=users,dc=example,dc=org
+objectClass: inetOrgPerson
+cn: $username
+sn: $username
+uid: $username
+userPassword: $password
+EOF
+}
+
+delete_users() {
+  if [ $# -eq 0 ]; then
+    echo "Usage: del <username_or_pattern1> [username_or_pattern2 ...]" >&2
+    return 1
+  fi
+
+  local overall_success=true
+  local user_arg
+
+  for user_arg in "$@"; do
+    echo "Processing deletion for: '$user_arg'"
+    if echo "$user_arg" | grep -q '[*]'; then
+      # Wildcard detected for this argument
+      echo "Wildcard detected for '$user_arg'. Searching for users matching 'cn=$user_arg'..."
+      local filter="(cn=$user_arg)"
+      local search_output
+      # ldapsearch is a function defined in this script.
+      search_output=$(ldapsearch "$filter" dn)
+
+      if [ -z "$search_output" ]; then
+        echo "No users found matching pattern '$user_arg'."
+        # Not an overall failure if other args are processed
+        echo "---" # Separator
+        continue
+      fi
+
+      local found_match_for_pattern=false
+      local all_successful_for_pattern=true
+
+      # Process each DN found by ldapsearch
+      # Ensure awk processes each line of search_output correctly
+      echo "$search_output" | awk -F': ' '/^dn: / {print $2}' | while IFS= read -r dn_to_delete; do
+        if [ -z "$dn_to_delete" ]; then # Skip empty lines
+            continue
+        fi
+        found_match_for_pattern=true
+        echo "Attempting to delete user DN: $dn_to_delete"
+        # ldapdelete is a function defined in this script.
+        if ldapdelete "$dn_to_delete"; then
+          echo "User DN '$dn_to_delete' deleted successfully."
+        else
+          echo "Failed to delete user DN '$dn_to_delete'." >&2
+          all_successful_for_pattern=false
+          overall_success=false
+        fi
+      done
+
+      if ! "$found_match_for_pattern"; then
+          echo "No users found matching pattern '$user_arg' (after parsing search results)."
+      elif "$all_successful_for_pattern"; then
+        echo "All users matching pattern '$user_arg' deleted successfully."
+      else
+        echo "Some users matching pattern '$user_arg' could not be deleted." >&2
+        # overall_success is already set to false if any deletion failed
+      fi
+    else
+      # No wildcard for this argument, proceed with direct deletion based on cn
+      local dn_to_delete="cn=$user_arg,ou=users,dc=example,dc=org"
+      echo "Attempting to delete user: $dn_to_delete"
+      # ldapdelete is a function defined in this script.
+      if ldapdelete "$dn_to_delete"; then
+        echo "User $user_arg (DN: $dn_to_delete) deleted successfully"
+      else
+        echo "Failed to delete user $user_arg (DN: $dn_to_delete)" >&2
+        overall_success=false
+      fi
+    fi
+    echo "---" # Separator for multiple arguments
+  done
+
+  if "$overall_success"; then
+    echo "All specified deletion operations completed successfully."
+    return 0
+  else
+    echo "Some deletion operations failed." >&2
+    return 1
+  fi
+}
+
+batch_add_users() {
+  if [ $# -eq 0 ]; then
+    echo "Usage: $0 batch_add <username1> [username2 ...]" >&2
+    return 1
+  fi
+
+  local username
+  local password
+  for username in "$@"; do
+    # Generate random 8-character alphanumeric password
+    password=$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 8)
+    if [ -z "$password" ] || [ ${#password} -ne 8 ]; then
+        echo "Error: Could not generate a password for $username." >&2
+        continue # Skip to the next user
+    fi
+
+    # add_user function already provides its own success/failure messages.
+    # We will print the username:password pair if add_user succeeds.
+    if add_user "$username" "$password"; then
+      echo "User credentials created: $username:$password"
+      echo "$username:$password" >> "$HOME/ldap_credentials.txt" # Append credentials to file
+    else
+      # add_user already prints "Failed to add user $username"
+      # We can add a more general message for the batch operation context if needed,
+      # but add_user's message should be sufficient.
+      echo "Failed to complete addition for $username as part of batch operation." >&2
+    fi
+  done
+}
+
+# Check if the user provided a command
+case "$1" in
+  add)
+    shift
+    add_user "$@"
+    ;;
+  del)
+    shift
+    delete_users "$@"
+    ;;
+  passwd)
+    shift
+    change_password "$@"
+    ;;
+  ls)
+    shift
+    list_users "$@"
+    ;;
+  badd|batch_add)
+    shift
+    batch_add_users "$@"
+    ;;
+  *)
+    echo "Usage: $0 <command> [args]" >&2
+    echo "Commands:" >&2
+    echo "  add <username> <password>" >&2
+    echo "  del <username> [username2 ...]" >&2
+    echo "  passwd <username> <new_password>" >&2
+    echo "  ls [username]" >&2
+    echo "  badd(or batch_add) <username1> [username2 ...]" >&2
+    exit 1
+    ;;
+esac
