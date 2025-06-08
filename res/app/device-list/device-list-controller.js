@@ -24,43 +24,55 @@ module.exports = function DeviceListCtrl(
     , selected: true
     }
   , {
-      name: 'model'
+      name: 'notes'
     , selected: true
     }
   , {
-      name: 'name'
+      name: 'owner'
+    , selected: true
+    }
+  , {
+      name: 'group'
     , selected: true
     }
   , {
       name: 'serial'
-    , selected: false
-    }
-  , {
-      name: 'operator'
     , selected: true
     }
   , {
-      name: 'releasedAt'
+      name: 'display'
     , selected: true
     }
   , {
-      name: 'version'
+      name: 'manufacturer'
+    , selected: true
+    }
+  , {
+      name: 'marketName'
     , selected: true
     }
   , {
       name: 'network'
+    , selected: true
+    }
+  , {
+      name: 'operator'
     , selected: false
     }
   , {
-      name: 'display'
+      name: 'releasedAt'
     , selected: false
     }
   , {
-      name: 'manufacturer'
+      name: 'version'
     , selected: false
     }
   , {
-      name: 'marketName'
+      name: 'model'
+    , selected: false
+    }
+  , {
+      name: 'name'
     , selected: false
     }
   , {
@@ -121,18 +133,6 @@ module.exports = function DeviceListCtrl(
     }
   , {
       name: 'provider'
-    , selected: true
-    }
-  , {
-      name: 'notes'
-    , selected: true
-    }
-  , {
-      name: 'owner'
-    , selected: true
-    }
-  , {
-      name: 'group'
     , selected: false
     }
   , {
@@ -177,7 +177,7 @@ module.exports = function DeviceListCtrl(
     ]
     , user: [
       {
-        name: 'name'
+        name: 'serial'
         , order: 'asc'
       }
     ]
